@@ -1,0 +1,142 @@
+---
+# tasks file for roles/install_tomcat
+
+# Tareas para instalar y configurar Tomcat
+
+# 1. Instalar Tomcat en RHEL/CentOS y Ubuntu/Debian
+- name: Instalar Tomcat en RHEL/CentOS
+  ansible.builtin.yum:
+    name: tomcat
+    state: present
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: Instalar Tomcat en Ubuntu/Debian
+  ansible.builtin.apt:
+    name: tomcat9
+    state: present
+  when: ansible_facts['os_family'] == 'Debian'
+
+# 2. Verificar si el keystore ya existe
+- name: Asegurar permisos del server.xml
+  ansible.builtin.file:
+    path: /etc/tomcat/server.xml
+    owner: tomcat
+    group: tomcat
+    mode: "0640"
+
+- name: Verificar si el keystore de Tomcat ya existe
+  ansible.builtin.stat:
+    path: /etc/tomcat/keystore.jks
+  register: keystore_exists
+
+# 3. Crear un certificado autofirmado usando `keytool` si el keystore no existe
+- name: Generar certificado SSL autofirmado
+  ansible.builtin.command: >
+    keytool -genkey -alias {{ tomcat_cert_alias | default('tomcat') }}
+    -keyalg RSA -keystore /etc/tomcat/keystore.jks
+    -storepass {{ tomcat_cert_password | default('changeit') }}
+    -keypass {{ tomcat_cert_password | default('changeit') }}
+    -validity 365 -keysize 2048
+    -dname "CN={{ ansible_fqdn }}, OU=IT, O=MyCompany, L=City, ST=State, C=Country"
+  register: create_cert_out
+  changed_when: create_cert_out.rc == 0
+  when: not keystore_exists.stat.exists
+
+# 4. Configurar el archivo server.xml con el puerto HTTP y HTTPS
+# 4. Configurar usuarios de Tomcat en tomcat-users.xml
+- name: Archivos de configuracion Tomcat
+  notify:
+    - Reiniciar Tomcat
+  block:
+    - name: Configurar server.xml de Tomcat
+      ansible.builtin.template:
+        src: server.xml.j2
+        dest: /etc/tomcat/server.xml
+        mode: "0644" # Lectura/escritura para propietario, solo lectura para grupo/otros
+        owner: tomcat # Usuario que ejecuta Tomcat
+        group: tomcat # Grupo que ejecuta Tomcat
+
+    - name: Configurar tomcat-users.xml
+      ansible.builtin.template:
+        src: tomcat-users.xml.j2
+        dest: /etc/tomcat/tomcat-users.xml
+        mode: "0644" # Lectura/escritura para propietario, solo lectura para grupo/otros
+        owner: tomcat # Usuario que ejecuta Tomcat
+        group: tomcat # Grupo que ejecuta Tomcat
+
+# 5. Descargar aplicación de prueba (WAR) y desplegarla en Tomcat
+- name: Descargar aplicación de prueba (WAR)
+  ansible.builtin.get_url:
+    url: "https://tomcat.apache.org/tomcat-7.0-doc/appdev/sample/sample.war"
+    dest: "{{ install_tomcat_deploy_dir }}/sample.war"
+    mode: "0755"
+
+# 6. Configurar el firewall para permitir puertos HTTP y HTTPS
+- name: Abrir el puerto HTTP en firewalld (RHEL/CentOS)
+  ansible.posix.firewalld:
+    port: "{{ tomcat_port | default('8080') }}/tcp"
+    permanent: true
+    state: enabled
+    immediate: true
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: Abrir el puerto HTTPS en firewalld (RHEL/CentOS)
+  ansible.posix.firewalld:
+    port: "{{ tomcat_ssl_port | default('8443') }}/tcp"
+    permanent: true
+    state: enabled
+    immediate: true
+  when: ansible_facts['os_family'] == 'RedHat' and tomcat_ssl_enabled | default('true')
+
+- name: Recargar firewalld (RHEL/CentOS)
+  ansible.posix.firewalld:
+    immediate: true
+    permanent: true
+    state: enabled
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: Permitir puertos HTTP y HTTPS en UFW (Ubuntu)
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "{{ tomcat_port | default('8080') }}"
+    - "{{ tomcat_ssl_port | default('8443') }}"
+  when: ansible_facts['os_family'] == 'Debian'
+
+# 7. Asegurar que Tomcat esté ejecutándose
+- name: Asegurar que Tomcat está en ejecución
+  ansible.builtin.systemd:
+    name: tomcat
+    state: started
+    enabled: true
+
+- name: Esperar que el puerto HTTPS de Tomcat este disponible
+  ansible.builtin.wait_for:
+    host: "{{ ansible_facts['default_ipv4']['address'] }}"
+    port: "{{ tomcat_ssl_port | default('8443') }}"
+    timeout: 60
+    state: present
+  when: tomcat_ssl_enabled | default('true')
+
+# 10. Verificar si la aplicación de prueba está desplegada correctamente
+- name: Verificar acceso a la aplicación de prueba en HTTPS
+  ansible.builtin.uri:
+    url: "https://{{ ansible_facts['default_ipv4']['address'] }}:{{ tomcat_ssl_port | default('8443') }}/sample/"
+    validate_certs: false # Al ser certificado es autofirmado
+    return_content: true
+  register: https_response
+
+- name: Mostrar el resultado del acceso HTTPS a la aplicación de prueba
+  ansible.builtin.debug:
+    msg:
+      - "La aplicación de prueba está accesible via HTTPS: {{ https_response.status }}"
+      - "URL: https://{{ ansible_facts['default_ipv4']['address'] }}:{{ tomcat_ssl_port | default('8443') }}/sample/"
+  when: https_response.status == 200
+
+- name: Mostrar las credenciales de Tomcat
+  ansible.builtin.debug:
+    msg:
+      - "Usuario: {{ install_tomcat_admin_user }}"
+      - "Contraseña: {{ install_tomcat_admin_password }}"

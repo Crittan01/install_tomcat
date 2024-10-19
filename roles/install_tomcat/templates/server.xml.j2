@@ -1,0 +1,28 @@
+<Server port="8005" shutdown="SHUTDOWN">
+    <Service name="Catalina">
+  
+      <!-- Conector HTTP -->
+      <Connector port="{{ tomcat_port | default('8080') }}" protocol="HTTP/1.1"
+                 connectionTimeout="20000"
+                 redirectPort="{{ tomcat_ssl_port | default('8443') }}" />
+  
+      {% if tomcat_ssl_enabled | default('true') %}
+      <!-- Conector HTTPS -->
+      <Connector port="{{ tomcat_ssl_port | default('8443') }}" protocol="org.apache.coyote.http11.Http11NioProtocol"
+                 maxThreads="150" SSLEnabled="true">
+        <SSLHostConfig>
+          <Certificate certificateKeystoreFile="/etc/tomcat/keystore.jks"
+                       certificateKeystorePassword="{{ tomcat_cert_password | default('changeit') }}"
+                       type="RSA" />
+        </SSLHostConfig>
+      </Connector>
+      {% endif %}
+  
+      <Engine name="Catalina" defaultHost="localhost">
+        <Host name="localhost"  appBase="{{ install_tomcat_deploy_dir }}"
+              unpackWARs="true" autoDeploy="true">
+        </Host>
+      </Engine>
+    </Service>
+  </Server>
+  

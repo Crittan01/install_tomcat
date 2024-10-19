@@ -1,0 +1,5 @@
+---
+# vars file for roles/install_tomcat
+install_tomcat_deploy_dir: /var/lib/tomcat/webapps
+install_tomcat_admin_user: admin
+install_tomcat_admin_password: password

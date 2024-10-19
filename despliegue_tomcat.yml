@@ -1,0 +1,7 @@
+---
+- name: Instalación y Configuración de Tomcat
+  hosts: all
+  become: true
+
+  roles:
+    - install_tomcat

@@ -1,5 +1,5 @@
-[centos9]
-centos9s
+[centos_servers]
+centos7
 
 # [centos_servers]
 # centos7

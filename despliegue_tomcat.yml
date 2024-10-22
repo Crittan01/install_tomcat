@@ -1,6 +1,6 @@
 ---
 - name: Instalación y Configuración de Tomcat
-  hosts: all
+  hosts: centos_servers
   become: true
 
   roles:

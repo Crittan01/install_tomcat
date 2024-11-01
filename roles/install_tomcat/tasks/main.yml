@@ -71,6 +71,14 @@
     dest: "{{ install_tomcat_deploy_dir }}/sample.war"
     mode: "0755"
 
+# Asegurar que firewalld esté instalado y ejecutándose en RHEL/CentOS
+- name: Iniciar y habilitar firewalld en RHEL/CentOS
+  ansible.builtin.service:
+    name: firewalld
+    state: started
+    enabled: true
+  when: ansible_facts['os_family'] == 'RedHat'
+
 # 6. Configurar el firewall para permitir puertos HTTP y HTTPS
 - name: Abrir el puerto HTTP en firewalld (RHEL/CentOS)
   ansible.posix.firewalld:
